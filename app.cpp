@@ -11,17 +11,22 @@
 #include <signal.h>
 #include <netdb.h>
 #include <ctime>
+#include <fcntl.h>
 
 using namespace std;
 
 const int bufferSize = 256;
+char buffer[bufferSize];
 const size_t addressSize = sizeof(sockaddr_in);
 const string NEW_CLIENT = "NEW_CLIENT";
 const string CHANGE_DESTINATION = "CHANGE_DESTINATION";
+const string EMPTY = "EMPTY";
+const string MESSAGE = "MESSAGE";
 
 int receiveSocket;
 int sendSocket;
 int senderSocket;
+int controlSocket;
 
 bool hasToken;
 
@@ -30,7 +35,10 @@ int connectAndBindSocket(int port);
 void connectSocketToIP(int socket, string ip, int port);
 int acceptSocket(int socket, sockaddr_in* address);
 string createNewClientMessage(int port);
-string createChangeDestinationMessage(string ip, string port);
+string createChangeDestinationMessage(string senderIP, string senderPort, string destinationIP, string destinationPort);
+string createMessage(string contents, int port);
+void readMessage();
+string getMyIP();
 string getTime();
 void atexitHandler();
 void SIGINT_handler(int sig);
@@ -42,7 +50,6 @@ int main(int argc, char *argv[])
     signal(SIGINT, SIGINT_handler);
 
     int receivePort;
-    char buffer[bufferSize];
     int n;
 
     if (argc < 6) {
@@ -64,37 +71,72 @@ int main(int argc, char *argv[])
 
     sockaddr_in senderAddress;
 
-    if (!hasToken) {
+    if (hasToken) {
+        
+    }
+
+    else {
+
+    }
+
+    if (hasToken) {
         senderSocket = acceptSocket(receiveSocket, &senderAddress);
         connectSocketToIP(sendSocket, sendIP, sendPort);
 
-        while(true) {
-            sleep(1);
+        readMessage();
 
-            bzero(buffer,bufferSize);
-            n = read(senderSocket,buffer,bufferSize);
-            if (n < 0)
-                perror("ERROR reading from socket");
+        char* type = strtok(buffer, " ");
+        if (strcmp(type, NEW_CLIENT.c_str()) == 0 ) {
+            cout << "pomijam, bo to pierwsza i jest ladnie ustawione" << endl;
+            string ip = strtok(NULL, " ");
+            string port = strtok(NULL, " ");
+            string message = createChangeDestinationMessage(getMyIP(), to_string(receivePort), ip, port);
+            cout << message << endl;
+        }
+        else
+            perror("wolololololoo");
+
+        if (fcntl(receiveSocket, F_SETFL, O_NONBLOCK) < 0)
+            perror("ustawianie nonblockingu");
+
+        string message = createMessage("Zaczynamy!!!", receivePort);
+        send(sendSocket, message.c_str(), message.length(), 0);
+
+        while(true) {
+            controlSocket = acceptSocket(receiveSocket, &senderAddress);
+            if ( controlSocket < 0) {
+                cout << "Nie ma durigego placznie" << endl;
+            }
+
+            readMessage();
 
             printf("Here is the message: %s\n",buffer);
             string m(buffer);
             cout << m;
 
-
             char* type = strtok(buffer, " ");
-
-            if (strcmp(type, NEW_CLIENT.c_str()) == 0 ) {
-                string ip = strtok(NULL, " ");
-                string port = strtok(NULL, " ");
-                string message = createChangeDestinationMessage(ip, port);
-                cout << message << endl;
-
+            if( strcmp(type, EMPTY.c_str()) == 0) {
+                sleep(1);
+                string message = createMessage(getTime(), receivePort);
+                send(sendSocket, message.c_str(), message.length(), 0);
             }
 
+            else {
+                string ip = strtok(NULL, " ");
+                string port = strtok(NULL, " ");
 
-            sleep(1);
-            string message = userID + ": " + getTime();
-            send(sendSocket, message.c_str(), message.length(), 0);
+                if ( ip.compare(getMyIP()) == 0 && atoi(port.c_str()) == receivePort) {
+                    string message = createMessage(getTime(), receivePort);
+                    sleep(1);
+                    send(sendSocket, message.c_str(), message.length(), 0);
+                }
+
+                else {
+                    sleep(1);
+                    send(sendSocket, message.c_str(), message.length(), 0);
+                }
+
+            }
         }
 
     }
@@ -181,13 +223,28 @@ string getTime() {
 }
 
 string createNewClientMessage(int port) {
-    sockaddr_in myAddress;
-    socklen_t myAddressLength = addressSize;
-    getsockname(sendSocket, (sockaddr *) &myAddress, &myAddressLength);
-    string message = NEW_CLIENT + " " + string(inet_ntoa(myAddress.sin_addr)) + " " + to_string(port);
+    string message = NEW_CLIENT + " " + getMyIP() + " " + to_string(port);
     return message;
 }
 
-string createChangeDestinationMessage(string ip, string port) {
-    return CHANGE_DESTINATION + " " + ip + port;
+string createChangeDestinationMessage(string senderIP, string senderPort, string destinationIP, string destinationPort) {
+    return CHANGE_DESTINATION + " " + senderIP + " " + senderPort + " " + destinationIP + " " + destinationPort;
+}
+
+string getMyIP() {
+    sockaddr_in myAddress;
+    socklen_t myAddressLength = addressSize;
+    getsockname(sendSocket, (sockaddr *) &myAddress, &myAddressLength);
+    return string(inet_ntoa(myAddress.sin_addr));
+}
+
+string createMessage(string contents, int port) {
+    return MESSAGE + " " + getMyIP() + " " + to_string(port) + " " + contents;
+}
+
+void readMessage() {
+    bzero(buffer, bufferSize);
+    int n = read(senderSocket, buffer, bufferSize);
+    if (n < 0)
+        perror("ERROR reading from socket");
 }
