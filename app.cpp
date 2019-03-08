@@ -72,7 +72,7 @@ int main(int argc, char *argv[])
     sockaddr_in senderAddress;
 
     if (hasToken) {
-        
+
     }
 
     else {
